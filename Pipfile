@@ -4,17 +4,17 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-spacy = "*"
-pymupdf = "*"
-scikit-learn = "*"
-pandas = "*"
-pathlib = "*"
 myplotlib = "*"
 nltk = "*"
 networkx = "*"
 pyvis = "*"
+pymupdf = "*"
+pathlib = "*"
+spacy = "*"
 langdetect = "*"
 pycld2 = "*"
+scikit-learn = "*"
+pandas = "*"
 
 [dev-packages]
 ipykernel = "*"
