@@ -1,0 +1,23 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+spacy = "*"
+pymupdf = "*"
+scikit-learn = "*"
+pandas = "*"
+pathlib = "*"
+myplotlib = "*"
+nltk = "*"
+networkx = "*"
+pyvis = "*"
+langdetect = "*"
+pycld2 = "*"
+
+[dev-packages]
+ipykernel = "*"
+
+[requires]
+python_version = "3.12"
