@@ -6,6 +6,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from collections import Counter
 import pandas as pd
 from pathlib import Path
+import networkx as nx
+from collections import defaultdict
+from pyvis.network import Network
 
 try:
   nlp = spacy.load("pt_core_news_lg")
@@ -143,55 +146,229 @@ def prepare_terms_dataframe(terms_brute_df, terms_importance_df):
 
   return df_terms
 
-CAUSAL_VERBS_LEMAS = {
-  "causar", "provocar", "ocasionar", "gerar", "levar", "resultar",
-  "desencadear", "induzir", "promover", "acarretar", "implicar", 
-  "produzir", "motivar", "suscitar", "originar", "contribuir",
-  "aumentar", "reduzir", "elevar", "diminuir",
-  
-  "criar", "desencadear", "propiciar", "possibilitar", "favorecer", 
-  "estimular", "agravar", "intensificar", "prejudicar", "beneficiar",
-  "desenvolver", "manifestar"
-}
-
-CAUSAL_NOUNS_LEMAS = {
-  "fator", "motivo", "razão", "causa", "preditor", "marcador", "risco", 
-  "origem", "fonte", "gatilho", "estímulo", "precursor", "indutor", 
-  "condição", "antecedente", "desencadeador"
-}
-
-EFFECT_NOUNS_LEMAS = {
-  "consequencia", "resultado", "efeito", "impacto", "repercussão", "desfecho"
-}
-
-def clear_action_words(text):
-  doc = nlp(text)
-  filtered_tokens = []
-  
-  # ANTIGO
-  # ACTION_LEMMAS = { "aumentar", "reduzir", "elevar", "elevação", "diminuir", "queda"
-  #                  "crescer", "crescimento", "diminuição", "redução" }
-  
-  # NOVO
-  ACTION_LEMMAS = {"elevação", "queda", "crescimento", "diminuição", "redução"}
-  
-  for token in doc:
-    if token.lemma_.lower() not in ACTION_LEMMAS:
-      filtered_tokens.append(token.text_with_ws)
-  return "".join(filtered_tokens).strip()
-
-def normalize_term(term):
-  """Normaliza termos para agrupar conceitos similares"""
-  # Remover artigos e preposições no início
-  term = re.sub(r'^(a|o|as|os|um|uma|uns|umas|de|do|da|dos|das)\s+', '', term.lower())
-  
-  # Normalizar espaços
-  term = re.sub(r'\s+', ' ', term).strip()
-  
-  # Remover pontuação no final
-  term = re.sub(r'[.,;:!?]+$', '', term)
-  
-  return term
+class ImprovedCausalNetworkExtractor:
+    def __init__(self):
+        # Usar o modelo português que já está configurado
+        self.nlp = spacy.load("pt_core_news_lg")
+        self.nlp.max_length = 3000000
+        
+        # Usar os mesmos dicionários do pipeExtractor
+        self.CAUSAL_VERBS_LEMAS = {
+            "causar", "provocar", "ocasionar", "gerar", "levar", "resultar",
+            "desencadear", "induzir", "promover", "acarretar", "implicar", 
+            "produzir", "motivar", "suscitar", "originar", "contribuir",
+            "aumentar", "reduzir", "elevar", "diminuir"
+        }
+        
+        self.CAUSAL_NOUNS_LEMAS = {
+            "fator", "motivo", "razão", "causa", "preditor", "marcador", "risco"
+        }
+        
+        self.EFFECT_NOUNS_LEMAS = {
+            "consequencia", "resultado", "efeito", "impacto", "repercussão", "desfecho"
+        }
+        
+    def normalize_medical_entities(self, text):
+        """Normaliza entidades médicas para nomes canônicos"""
+        if not isinstance(text, str):
+            return None
+            
+        text = text.lower().strip()
+        text = re.sub(r"^[.,'\""'\[\(]+|[.,'\""'\]\)]+$", "", text.strip())
+        
+        # Regras de normalização médica (expandidas)
+        medical_mappings = {
+            # Cardiovascular
+            'hipertensão|has|pressão alta|pressão arterial elevada': 'Hipertensão Arterial',
+            'pressão arterial|pa|pas|pad': 'Pressão Arterial',
+            'cardiovascular|dvc|coronariana|infarto|avc|cardiopatia': 'Doenças Cardiovasculares',
+            
+            # Metabólica
+            'diabetes|dm|glicemia|insulina|resistência insulínica': 'Diabetes Mellitus',
+            'obesidade|sobrepeso|excesso de peso|imc elevado': 'Obesidade',
+            'dislipidemia|colesterol|triglicerídeos|ldl|hdl': 'Dislipidemia',
+            
+            # Estilo de vida
+            'tabagismo|fumo|cigarro|nicotina': 'Tabagismo',
+            'alcoolismo|álcool|etanol|bebida alcoólica': 'Consumo de Álcool',
+            'sedentarismo|inatividade física': 'Sedentarismo',
+            'atividade física|exercício|esporte': 'Atividade Física',
+            'estresse|ansiedade|tensão': 'Estresse Psicológico',
+            
+            # Alimentação
+            'dieta|alimentação|nutrição|alimentar': 'Dieta',
+            'sal|sódio|cloreto de sódio': 'Consumo de Sal',
+            'potássio': 'Consumo de Potássio',
+            
+            # Condições renais
+            'doença renal|drc|insuficiência renal': 'Doença Renal Crônica'
+        }
+        
+        for pattern, canonical in medical_mappings.items():
+            if any(term in text for term in pattern.split('|')):
+                return canonical
+                
+        # Filtrar termos muito curtos ou genéricos
+        if len(text) < 3 or text in ['o', 'a', 'os', 'as', 'um', 'uma', 'de', 'do', 'da']:
+            return None
+            
+        return text.title()
+    
+    def extract_causal_relations_improved(self, doc):
+        """Extração melhorada usando análise sintática do spaCy"""
+        relations = []
+        
+        for sent in doc.sents:
+            sent_doc = self.nlp(sent.text)
+            
+            for token in sent_doc:
+                # Lógica 1: Verbos causais
+                if token.lemma_ in self.CAUSAL_VERBS_LEMAS and token.pos_ == "VERB":
+                    subjects = [child for child in token.children if child.dep_ in ("nsubj", "nsubj:pass")]
+                    objects = [child for child in token.children if child.dep_ in ("obj", "dobj")]
+                    
+                    # Incluir objetos oblíquos
+                    for child in token.children:
+                        if child.dep_ == "obl":
+                            for grandchild in child.children:
+                                if grandchild.dep_ == "pobj":
+                                    objects.append(grandchild)
+                    
+                    for subj in subjects:
+                        for obj in objects:
+                            cause_text = self._get_entity_phrase(subj)
+                            effect_text = self._get_entity_phrase(obj)
+                            
+                            cause_norm = self.normalize_medical_entities(cause_text)
+                            effect_norm = self.normalize_medical_entities(effect_text)
+                            
+                            if cause_norm and effect_norm and cause_norm != effect_norm:
+                                relations.append({
+                                    'causa': cause_norm,
+                                    'efeito': effect_norm,
+                                    'marcador': token.text,
+                                    'tipo': 'verbo_causal',
+                                    'sentenca': sent.text[:100] + "..." if len(sent.text) > 100 else sent.text
+                                })
+                
+                # Lógica 2: Substantivos causais
+                elif token.pos_ == "NOUN" and token.lemma_ in self.CAUSAL_NOUNS_LEMAS:
+                    # Procurar modificadores e sujeitos relacionados
+                    main_entity = None
+                    related_entity = None
+                    
+                    # Buscar entidade principal (sujeito da frase)
+                    if token.dep_ == "attr":
+                        main_entity = next((child for child in token.head.children if child.dep_ == 'nsubj'), None)
+                    
+                    # Buscar entidade relacionada (modificador do substantivo)
+                    related_entity = next((child for child in token.children if child.dep_ == 'nmod'), None)
+                    
+                    if main_entity and related_entity:
+                        cause_text = self._get_entity_phrase(main_entity)
+                        effect_text = self._get_entity_phrase(related_entity)
+                        
+                        cause_norm = self.normalize_medical_entities(cause_text)
+                        effect_norm = self.normalize_medical_entities(effect_text)
+                        
+                        if cause_norm and effect_norm and cause_norm != effect_norm:
+                            relations.append({
+                                'causa': cause_norm,
+                                'efeito': effect_norm,
+                                'marcador': token.text,
+                                'tipo': 'substantivo_causal',
+                                'sentenca': sent.text[:100] + "..." if len(sent.text) > 100 else sent.text
+                            })
+        
+        return relations
+    
+    def _get_entity_phrase(self, token):
+        """Extrai a frase completa da entidade, incluindo modificadores"""
+        tokens_in_phrase = []
+        
+        # Incluir o token principal
+        tokens_in_phrase.append(token.text)
+        
+        # Incluir modificadores à esquerda
+        for child in token.lefts:
+            if child.dep_ in ('amod', 'compound', 'det'):
+                tokens_in_phrase.insert(0, child.text)
+        
+        # Incluir modificadores à direita
+        for child in token.rights:
+            if child.dep_ in ('amod', 'compound'):
+                tokens_in_phrase.append(child.text)
+        
+        return " ".join(tokens_in_phrase)
+    
+    def build_network_from_relations(self, relations_df, min_frequency=2):
+        """Constrói rede a partir das relações extraídas"""
+        # Contar frequência das relações
+        relation_counts = defaultdict(int)
+        for _, row in relations_df.iterrows():
+            relation_counts[(row['Causa'], row['Efeito'])] += 1
+        
+        # Filtrar por frequência mínima
+        filtered_relations = {k: v for k, v in relation_counts.items() if v >= min_frequency}
+        
+        # Criar grafo direcionado
+        G = nx.DiGraph()
+        
+        for (cause, effect), frequency in filtered_relations.items():
+            G.add_edge(cause, effect, weight=frequency, title=f"Frequência: {frequency}")
+        
+        # Remover ciclos para garantir DAG
+        while not nx.is_directed_acyclic_graph(G):
+            try:
+                cycle = nx.find_cycle(G, orientation='original')
+                # Remover a aresta com menor peso no ciclo
+                edge_to_remove = min(cycle, key=lambda edge: G.get_edge_data(edge[0], edge[1])['weight'])
+                G.remove_edge(edge_to_remove[0], edge_to_remove[1])
+                print(f"Ciclo removido: {edge_to_remove}")
+            except nx.NetworkXNoCycle:
+                break
+        
+        # Remover nós isolados
+        isolated_nodes = list(nx.isolates(G))
+        G.remove_nodes_from(isolated_nodes)
+        
+        return G
+    
+    def visualize_network(self, G, output_file="improved_bayesian_network.html"):
+        """Cria visualização interativa da rede"""
+        net = Network(height="800px", width="100%", bgcolor="#f0f0f0", 
+                     font_color="black", directed=True)
+        
+        # Configurar nós com tamanho baseado no grau
+        for node in G.nodes():
+            degree = G.degree(node)
+            net.add_node(node, 
+                        size=min(50, 20 + degree * 5),
+                        title=f"Conexões: {degree}",
+                        color="#4a90e2")
+        
+        # Configurar arestas com espessura baseada no peso
+        for edge in G.edges(data=True):
+            weight = edge[2].get('weight', 1)
+            net.add_edge(edge[0], edge[1], 
+                        width=min(10, weight * 2),
+                        title=edge[2].get('title', ''),
+                        color="#666666")
+        
+        # Configurações de física para melhor layout
+        net.set_options("""
+        var options = {
+          "physics": {
+            "enabled": true,
+            "stabilization": {"iterations": 100}
+          }
+        }
+        """)
+        
+        net.save_graph(output_file)
+        print(f"Rede salva em: {output_file}")
+        
+        return net
 
 # TOD Adicionar chamada para esta função em extract_causal_relations
 # TOD antes de adicionar à lista de relações
@@ -460,3 +637,63 @@ if enriched_relations:
     print("INFO: No enriched relations found to generate CSV.")
 else:
   print("INFO: No causal relations found to enrich with TF-IDF.")
+
+# Função para processar o corpus existente
+def process_existing_corpus():
+    """Usa os dados já extraídos pelo pipeExtractor"""
+    extractor = ImprovedCausalNetworkExtractor()
+    
+    try:
+        # Tentar carregar as relações já extraídas
+        df = pd.read_csv("enriched_cause_effect_relations.csv")
+        print(f"Carregadas {len(df)} relações do arquivo existente")
+        
+        # Renormalizar as entidades
+        df['Causa_Norm'] = df['causa'].apply(extractor.normalize_medical_entities)
+        df['Efeito_Norm'] = df['efeito'].apply(extractor.normalize_medical_entities)
+        
+        # Filtrar relações válidas
+        df_valid = df[(df['Causa_Norm'].notna()) & (df['Efeito_Norm'].notna()) & 
+                     (df['Causa_Norm'] != df['Efeito_Norm'])]
+        
+        print(f"Relações válidas após normalização: {len(df_valid)}")
+        
+        # Criar DataFrame final
+        relations_final = pd.DataFrame({
+            'Causa': df_valid['Causa_Norm'],
+            'Efeito': df_valid['Efeito_Norm'],
+            'Score': df_valid.get('score_relacao', 1),
+            'Arquivo': df_valid.get('arquivo_origem', 'N/A')
+        })
+        
+        # Construir e visualizar a rede
+        G = extractor.build_network_from_relations(relations_final, min_frequency=2)
+        
+        print(f"Rede final: {G.number_of_nodes()} nós, {G.number_of_edges()} arestas")
+        
+        # Salvar estatísticas
+        stats = {
+            'Nó': list(G.nodes()),
+            'Grau_Entrada': [G.in_degree(node) for node in G.nodes()],
+            'Grau_Saida': [G.out_degree(node) for node in G.nodes()],
+            'Centralidade': [round(nx.betweenness_centrality(G)[node], 3) for node in G.nodes()]
+        }
+        
+        stats_df = pd.DataFrame(stats).sort_values('Centralidade', ascending=False)
+        stats_df.to_csv("network_statistics.csv", index=False)
+        
+        # Visualizar
+        extractor.visualize_network(G)
+        
+        print("\n=== NÓS MAIS CENTRAIS ===")
+        print(stats_df.head(10))
+        
+        return G, relations_final
+        
+    except FileNotFoundError:
+        print("Arquivo enriched_cause_effect_relations.csv não encontrado!")
+        print("Execute primeiro o pipeExtractor.py")
+        return None, None
+
+if __name__ == "__main__":
+    G, relations = process_existing_corpus()

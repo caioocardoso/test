@@ -1,0 +1,56 @@
+=== RELATÓRIO DE ANÁLISE DE RELAÇÕES CAUSAIS ===
+
+Total de entidades identificadas: 2139
+Total de relações causais extraídas: 2269
+Relações únicas: 1808
+Frequência média por relação: 1.25
+
+--- TOP 10 CAUSAS MAIS MENCIONADAS ---
+exercise: 33 ocorrências
+physical activity: 29 ocorrências
+psyllium: 15 ocorrências
+morphological and functional parameter: 14 ocorrências
+endurance training: 14 ocorrências
+vitamin d: 13 ocorrências
+activation: 13 ocorrências
+fruit and vegetable intake: 12 ocorrências
+fiber: 11 ocorrências
+melatonin: 10 ocorrências
+
+--- TOP 10 EFEITOS MAIS MENCIONADOS ---
+multiple transcriptional change: 24 ocorrências
+skeletal muscle mitochon drial volume density: 22 ocorrências
+de novo biogenesis: 22 ocorrências
+sleep quality: 17 ocorrências
+increase sleep quality: 14 ocorrências
+change: 14 ocorrências
+sleep: 14 ocorrências
+experimental colitis: 13 ocorrências
+improvement: 13 ocorrências
+performance: 13 ocorrências
+
+--- TIPOS DE RELAÇÕES IDENTIFICADAS ---
+general: 1784 relações
+intra_sleep: 9 relações
+activity_to_sleep: 3 relações
+mental_to_sleep: 3 relações
+sleep_to_activity: 2 relações
+intra_mental: 1 relações
+intra_nutrition: 1 relações
+activity_to_mental: 1 relações
+nutrition_to_mental: 1 relações
+activity_to_physiological: 1 relações
+activity_to_nutrition: 1 relações
+nutrition_to_physiological: 1 relações
+
+--- TOP 10 RELAÇÕES MAIS FREQUENTES ---
+evolution → attainment (Freq: 4, Tipo: general)
+fruit and vegetable intake → increase sleep quality (Freq: 4, Tipo: general)
+author → work (Freq: 4, Tipo: general)
+morphological and functional parameter → density (Freq: 4, Tipo: general)
+muscle growth → increase (Freq: 4, Tipo: general)
+physical activity → increase sleep quality (Freq: 4, Tipo: activity_to_sleep)
+restful sleep → increase sleep quality (Freq: 4, Tipo: intra_sleep)
+sleep quality → increase quality (Freq: 4, Tipo: general)
+sleep quality → subjective health (Freq: 4, Tipo: general)
+fruit and vegetable intake → quality (Freq: 3, Tipo: general)
